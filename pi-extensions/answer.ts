@@ -37,7 +37,7 @@ interface ExtractionResult {
 
 const SYSTEM_PROMPT = `You are a question extractor. Given text from a conversation, extract any questions that need answering.
 
-Output a JSON object with this structure:
+Output ONLY a JSON object with this structure, with no other text, explanation, or preamble:
 {
   "questions": [
     {
@@ -76,10 +76,17 @@ function parseExtractionResult(text: string): ExtractionResult | null {
 		// Try to find JSON in the response (it might be wrapped in markdown code blocks)
 		let jsonStr = text;
 
-		// Remove markdown code block if present
+		// 1. Try markdown code block first
 		const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
 		if (jsonMatch) {
 			jsonStr = jsonMatch[1].trim();
+		} else {
+			// 2. Fallback: find the outermost {...} JSON object in the text
+			//    Handles cases where the model adds a preamble sentence before the JSON
+			const objMatch = text.match(/(\{[\s\S]*\})/);
+			if (objMatch) {
+				jsonStr = objMatch[1].trim();
+			}
 		}
 
 		const parsed = JSON.parse(jsonStr);
