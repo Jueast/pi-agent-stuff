@@ -10,7 +10,7 @@
  * 4. Submits the compiled answers when done
  */
 
-import { complete, type Model, type Api, type UserMessage } from "@mariozechner/pi-ai";
+import { complete, type UserMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { BorderedLoader } from "@mariozechner/pi-coding-agent";
 import {
@@ -67,39 +67,6 @@ Example output:
   ]
 }`;
 
-const CODEX_MODEL_ID = "gpt-5.1-codex-mini";
-const HAIKU_MODEL_ID = "claude-haiku-4-5";
-
-/**
- * Prefer Codex mini for extraction when available, otherwise fallback to haiku or the current model.
- */
-async function selectExtractionModel(
-	currentModel: Model<Api>,
-	modelRegistry: {
-		find: (provider: string, modelId: string) => Model<Api> | undefined;
-		getApiKey: (model: Model<Api>) => Promise<string | undefined>;
-	},
-): Promise<Model<Api>> {
-	const codexModel = modelRegistry.find("openai-codex", CODEX_MODEL_ID);
-	if (codexModel) {
-		const apiKey = await modelRegistry.getApiKey(codexModel);
-		if (apiKey) {
-			return codexModel;
-		}
-	}
-
-	const haikuModel = modelRegistry.find("anthropic", HAIKU_MODEL_ID);
-	if (!haikuModel) {
-		return currentModel;
-	}
-
-	const apiKey = await modelRegistry.getApiKey(haikuModel);
-	if (!apiKey) {
-		return currentModel;
-	}
-
-	return haikuModel;
-}
 
 /**
  * Parse the JSON response from the LLM
@@ -163,9 +130,11 @@ class QnAComponent implements Component {
 		const editorTheme: EditorTheme = {
 			borderColor: this.dim,
 			selectList: {
-				selectedBg: (s: string) => `\x1b[44m${s}\x1b[0m`,
-				matchHighlight: this.cyan,
-				itemSecondary: this.gray,
+				selectedPrefix: this.cyan,
+				selectedText: (s) => s,
+				description: this.gray,
+				scrollInfo: this.dim,
+				noMatch: this.dim,
 			},
 		};
 
@@ -448,10 +417,12 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Select the best model for extraction (prefer Codex mini, then haiku)
-			const extractionModel = await selectExtractionModel(ctx.model, ctx.modelRegistry);
+			// Use the current model for extraction
+			const extractionModel = ctx.model;
 
 			// Run extraction with loader UI
+			let extractionError: string | undefined;
+			let extractionCost: number | undefined;
 			const extractionResult = await ctx.ui.custom<ExtractionResult | null>((tui, theme, _kb, done) => {
 				const loader = new BorderedLoader(tui, theme, `Extracting questions using ${extractionModel.id}...`);
 				loader.onAbort = () => done(null);
@@ -479,15 +450,35 @@ export default function (pi: ExtensionAPI) {
 						.map((c) => c.text)
 						.join("\n");
 
-					return parseExtractionResult(responseText);
+					const parsed = parseExtractionResult(responseText);
+					if (!parsed) {
+						throw new Error(`Failed to parse extraction response: ${responseText.slice(0, 200)}`);
+					}
+					extractionCost = response.usage?.cost?.total;
+					return parsed;
 				};
 
 				doExtract()
 					.then(done)
-					.catch(() => done(null));
+					.catch((err: unknown) => {
+						extractionError = err instanceof Error ? err.message : String(err);
+						done(null);
+					});
 
 				return loader;
 			});
+
+			if (extractionError) {
+				ctx.ui.notify(`Extraction failed: ${extractionError}`, "error");
+				return;
+			}
+
+			if (extractionCost !== undefined && extractionCost > 0) {
+				const costStr = extractionCost >= 0.01
+					? `$${extractionCost.toFixed(4)}`
+					: `$${extractionCost.toFixed(6)}`;
+				ctx.ui.notify(`Extraction cost: ${costStr}`, "info");
+			}
 
 			if (extractionResult === null) {
 				ctx.ui.notify("Cancelled", "info");
