@@ -53,7 +53,7 @@ Rules:
 - Be concise with question text
 - Include context only when it provides essential information for answering
 - If no questions are found, return {"questions": []}
-- All string values must be plain prose only — no code snippets, no backticks, no raw identifiers with special characters. Paraphrase technical terms in plain English if needed.
+- All string values must be plain prose only — no code snippets, no backticks, no raw identifiers with special characters. Paraphrase technical terms in the same language as the source text if needed.
 - Every string value must be a valid JSON string (properly escape any double quotes as \\")
 
 Example output:
