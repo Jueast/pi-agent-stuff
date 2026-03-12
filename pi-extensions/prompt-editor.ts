@@ -1242,7 +1242,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerShortcut("ctrl+space", {
+	pi.registerShortcut("f2", {
 		description: "Cycle prompt mode",
 		handler: async (ctx) => {
 			await cycleMode(pi, ctx, 1);
